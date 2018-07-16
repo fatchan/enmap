@@ -88,10 +88,10 @@ class Enmap extends Map {
     }
     Promise.all(keyOrKeys.map(async key => { //dont need to return from this in my use-case
       const value = await this.db.fetch(key);
-      if(value!=nulll && value.value!=null) {
-        super.set(key, value);
+      if(value!=null && value.value!=null) {
+        super.set(key, value.value);
       }
-    })));
+    }));
   }
 
   /**
