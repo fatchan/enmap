@@ -1,5 +1,3 @@
-const dotProp = require('dot-prop');
-
 /**
  * A enhanced Map structure with additional utility methods.
  * Can be made persistent 
@@ -45,7 +43,7 @@ class Enmap extends Map {
    * 
    * @returns {Array<Map>} An array of initialized Enmaps.
    */
-  static multi(names, Provider, options = {}) {
+  static multi(names, Provider, options = {}, fetchall) {
     if (!names.length || names.length < 1) {
       throw new Error('"names" argument must be an array of string names.');
     }
@@ -55,7 +53,7 @@ class Enmap extends Map {
 
     const returnvalue = {};
     for (const name of names) {
-      const enmap = new Enmap({ provider: new Provider(Object.assign(options, { name })) });
+      const enmap = new Enmap({ fetchAll: fetchall, provider: new Provider(Object.assign(options, { name })) });
       returnvalue[name] = enmap;
     }
     return returnvalue;
@@ -77,7 +75,7 @@ class Enmap extends Map {
   async fetch(keyOrKeys) {
     if (!Array.isArray(keyOrKeys)) {
       const value = await this.db.fetch(keyOrKeys);
-      if(value!=null && value.value!=null) {
+      if(value!=null && value.value) {
         super.set(keyOrKeys, value.value);
         return value.value;
       }
@@ -86,12 +84,12 @@ class Enmap extends Map {
       }
       return null;
     }
-    Promise.all(keyOrKeys.map(async key => { //dont need to return from this in my use-case
-      const value = await this.db.fetch(key);
-      if(value!=null && value.value!=null) {
-        super.set(key, value.value);
+    for(let i = 0; i < keyOrKeys.length; i++) {
+      const value = await this.db.fetch(keyOrKeys[i]);
+      if(value && value.value) {
+        super.set(keyOrKeys[i], value.value);
       }
-    }));
+    }
   }
 
   /**
@@ -134,7 +132,8 @@ class Enmap extends Map {
    * @return {Map} The Enmap.
    */
   set(key, val) {
-    if (val == null) throw `Value provided for ${key} was null or undefined. Please provide a value.`;
+//    console.log(key+' '+require('util').inspect(val))
+    if (val == null) return;
     let insert = val;
     if (val.constructor.name === 'Object') {
       const temp = {};
@@ -166,7 +165,7 @@ class Enmap extends Map {
    * @return {Promise<Map>} The Enmap.
    */
   setAsync(key, val) {
-    if (val == null) throw `Value provided for ${key} was null or undefined. Please provide a value.`;
+    if (val == null) return null;
     let insert = val;
     if (val.constructor.name === 'Object') {
       const temp = {};
@@ -192,7 +191,6 @@ class Enmap extends Map {
    * @param {string|number} key Required. The key of the element to add to The Enmap or array. 
    * This value MUST be a string or number.
    * @param {*} prop Required. The property to modify inside the value object or array.
-   * Can be a path with dot notation, such as "prop1.subprop2.subprop3"
    * @param {*} val Required. The value to apply to the specified property.
    * @param {boolean} save Optional. Whether to save to persistent DB (used as false in init)
    * @return {Map} The EnMap.
@@ -205,7 +203,7 @@ class Enmap extends Map {
     if (typeof data !== 'object') {
       throw 'Method can only be used when the value is an object';
     }
-    dotProp.set(data, prop, val);
+    data[prop] = val;
     return this.set(key, data);
   }
 
@@ -235,7 +233,6 @@ class Enmap extends Map {
    * @param {string|number} key Required. The key of the element. 
    * This value MUST be a string or number.
    * @param {*} prop Required. The name of the array property to push to.
-   * Can be a path with dot notation, such as "prop1.subprop2.subprop3"
    * @param {*} val Required. The value push to the array property.
    * @param {boolean} allowDupes Allow duplicate values in the array (default: false).
    * @return {Map} The EnMap.
@@ -248,13 +245,11 @@ class Enmap extends Map {
     if (typeof data !== 'object') {
       throw 'Method can only be used when the value is an object or array';
     }
-    const propValue = dotProp.get(data, prop);
-    if (propValue.constructor.name !== 'Array') {
+    if (data[prop].constructor.name !== 'Array') {
       throw 'Method can only be used when the property is an Array';
     }
-    if (!allowDupes && propValue.indexOf(val) > -1) return this;
-    propValue.push(val);
-    dotProp.set(data, prop, propValue);
+    if (!allowDupes && data[prop].indexOf(val) > -1) return this;
+    data[prop].push(val);
     return this.set(key, data);
   }
 
@@ -273,7 +268,7 @@ class Enmap extends Map {
       return super.get(key);
     }
     if (this.fetchAll || !this.persistent) {
-      return null;
+       return null;
     }
     return this.fetch(key);
   }
@@ -282,17 +277,16 @@ class Enmap extends Map {
    * Returns the specific property within a stored value. If the key does not exist or the value is not an object, throws an error.
    * @param {string|number} key Required. The key of the element to get from The Enmap. 
    * @param {*} prop Required. The property to retrieve from the object or array.
-   * Can be a path with dot notation, such as "prop1.subprop2.subprop3"
    * @return {*} The value of the property obtained.
    */
   getProp(key, prop) {
-    if (this.fetchAll || !this.persistent) {
+    if (this.fetchAll) {
       if (this.has(key)) {
         const data = super.get(key);
         if (typeof data !== 'object') {
           throw 'Method can only be used when the value is an object or array';
         }
-        return dotProp.get(data, prop);
+        return data[prop];
       } else {
         throw 'This key does not exist';
       }
@@ -301,7 +295,7 @@ class Enmap extends Map {
         if (typeof data !== 'object') {
           throw 'Method can only be used when the value is an object or array';
         }
-        return dotProp.get(data, prop);
+        return data[prop];
       });
     }
   }
@@ -330,7 +324,7 @@ class Enmap extends Map {
    * @returns {Promise<boolean>}
    */
   has(key) {
-    if (this.fetchAll || !this.persistent) return super.has(key);
+    if (this.fetchAll) return super.has(key);
     return this.db.hasAsync(key);
   }
 
@@ -338,11 +332,10 @@ class Enmap extends Map {
    * Returns whether or not the property exists within an object or array value in enmap.
    * @param {string|number} key Required. The key of the element to check in the Enmap or array. 
    * @param {*} prop Required. The property to verify inside the value object or array.
-   * Can be a path with dot notation, such as "prop1.subprop2.subprop3"
    * @return {boolean} Whether the property exists.
    */
   hasProp(key, prop) {
-    if (this.fetchAll || !this.persistent) {
+    if (this.fetchAll) {
       if (!this.has(key)) {
         throw 'This key does not exist';
       }
@@ -350,14 +343,14 @@ class Enmap extends Map {
       if (data.constructor.name !== 'Object') {
         throw 'The value of this key is not an object.';
       }
-      return dotProp.has(data, prop);
+      return data.hasOwnProperty(prop);
     } else {
       return this.fetch(key).then(data => {
         if (!data) throw 'This key does not exist';
         if (data.constructor.name !== 'Object') {
           throw 'The value of this key is not an object.';
         }
-        return dotProp.has(data, prop);
+        return data.hasOwnProperty(prop);
       });
     }
   }
@@ -444,13 +437,13 @@ class Enmap extends Map {
     if (!this.has(key)) {
       throw 'This key does not exist';
     }
-    const data = super.get(key);
+    let data = super.get(key);
     if (typeof data !== 'object') {
       throw 'Method can only be used when the value is an object or array';
     }
     if (data.constructor.name === 'Array') {
       const index = data.indexOf(val);
-      data.splice(index, 1);
+      data = data.slice(index, 1);
     } else {
       delete data[key];
     }
@@ -463,7 +456,6 @@ class Enmap extends Map {
    * @param {string|number} key Required. The key of the element. 
    * This value MUST be a string or number.
    * @param {*} prop Required. The name of the array property to remove from.
-   * Can be a path with dot notation, such as "prop1.subprop2.subprop3"
    * @param {*} val Required. The value to remove from the array property.
    * @return {Map} The EnMap.
    */
@@ -475,17 +467,16 @@ class Enmap extends Map {
     if (typeof data !== 'object') {
       throw 'Method can only be used when the value is an object or array';
     }
-    const propValue = dotProp.get(data, prop);
-    if (!propValue) {
+    if (!data[prop]) {
       throw 'Property does not exist';
     }
-    if (propValue.constructor.name === 'Array') {
-      propValue.splice(propValue.indexOf(val), 1);
-      dotProp.set(data, prop, propValue);
-    } else if (propValue.constructor.name === 'Object') {
-      dotProp.delete(data, `${prop}.${val}`);
+    if (data[prop].constructor.name === 'Array') {
+      let propdata = data[prop];
+      const index = propdata.indexOf(val);
+      propdata = propdata.slice(index, 1);
+      data[prop] = propdata;
     } else {
-      throw 'Property must be an array or object';
+      delete data[prop][val];
     }
     return this.set(key, data);
   }
@@ -494,11 +485,10 @@ class Enmap extends Map {
    * Delete a property from an object or array value in Enmap.
    * @param {string|number} key Required. The key of the element to delete the property from in Enmap. 
    * @param {*} prop Required. The name of the property to remove from the object.
-   * Can be a path with dot notation, such as "prop1.subprop2.subprop3"
    * @returns {Promise<Enmap>|Enmap} If fetchAll is true, return the Enmap. Otherwise return a promise containing the Enmap.
    */
   deleteProp(key, prop) {
-    if (this.fetchAll || !this.persistent) {
+    if (this.fetchAll) {
       if (!this.has(key)) {
         throw 'This key does not exist';
       }
@@ -506,7 +496,7 @@ class Enmap extends Map {
       if (typeof data !== 'object') {
         throw 'The value of this key is not an object.';
       }
-      dotProp.delete(data, prop);
+      delete data[prop];
       return this.set(key, data);
     } else {
       return this.fetch(key).then(data => {
@@ -514,7 +504,7 @@ class Enmap extends Map {
         if (typeof data !== 'object') {
           throw 'The value of this key is not an object.';
         }
-        dotProp.delete(data, prop);
+        delete data[prop];
         return this.set(key, data);
       });
     }
