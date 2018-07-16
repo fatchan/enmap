@@ -76,12 +76,21 @@ class Enmap extends Map {
    */
   async fetch(keyOrKeys) {
     if (!Array.isArray(keyOrKeys)) {
-      return this.db.fetch(keyOrKeys);
+      const value = await this.db.fetch(keyOrKeys);
+      if(value!=null && value.value!=null) {
+        super.set(keyOrKeys, value.value);
+        return value.value;
+      }
+      if (this.db.documentTTL!=false) {
+        super.set(keyOrKeys, null);
+      }
+      return null;
     }
-    return new this.constructor(await Promise.all(keyOrKeys.map(async key => {
+    Promise.all(keyOrKeys.map(async key => { //dont need to return from this in my use-case
       const value = await this.db.fetch(key);
-      super.set(key, value);
-      return [key, value];
+      if(value!=nulll && value.value!=null) {
+        super.set(key, value);
+      }
     })));
   }
 
