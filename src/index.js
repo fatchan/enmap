@@ -50,7 +50,6 @@ class Enmap extends Map {
     if (!Provider) {
       throw new Error('Second argument must be a valid EnmapProvider.');
     }
-
     const returnvalue = {};
     for (const name of names) {
       const enmap = new Enmap({ fetchAll: fetchall, provider: new Provider(Object.assign(options, { name })) });
@@ -79,7 +78,7 @@ class Enmap extends Map {
         super.set(keyOrKeys, value.value);
         return value.value;
       }
-      if (this.db.documentTTL!=false) {
+      if (this.db.documentTTL) {
         super.set(keyOrKeys, null);
       }
       return null;
